@@ -1,0 +1,30 @@
+name: create terraftom module
+description: used to create a terrafrom module in an organization
+inputs:
+  token:
+    description: terraform user token user
+    required: true
+  module_name:
+    description: the name of the terraform module to be created create
+    required: true
+  provider:
+    description: the module provider | aws
+    required: true
+  registry_name:
+    description: private | public registry
+    required: true
+  organization:
+    description: the terrafrom cloud organization to have the module created in
+    required: true
+  version:
+    description: the terrafrom module uploaded | updated version
+    required: true
+  file_path:
+    description: the module compressed file path (file must be with extention tar.gz)
+    required: true
+outputs:
+  response:
+    description: request response
+runs:
+  using: node12
+  main: dist/index.js
