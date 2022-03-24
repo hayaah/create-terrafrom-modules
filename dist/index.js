@@ -46,7 +46,6 @@ const createModuleApiCall = (callback) => {
     'Authorization': `Bearer ${getToken()}`
   }
 
-
   var options = {
     'method': 'POST',
     'url': `https://app.terraform.io/api/v2/organizations/${organization}/registry-modules`,
@@ -54,9 +53,12 @@ const createModuleApiCall = (callback) => {
     body: JSON.stringify(data)
   };
 
-  request(options, (error, response) => {
-    if (error) {
-      return callback({ error: error.error });
+  request(options, (errors, response) => {
+    if (response && response.statusCode == 404) {
+      return callback({ errors: "one or more parametere is missing, please check ( module name, organazation )", status: 404  });
+    } 
+    if (errors != null ) {
+      return callback({ errors: errors.errors });
     } 
     return callback(JSON.parse(response.body))
   });
@@ -120,9 +122,9 @@ const updateVersionModuleApiCall = (callback) => {
     body: JSON.stringify(data)
   };
 
-  request(options, (error, response) => { 
-    if (error) {
-      return callback({ error: error.errors});
+  request(options, (errors, response) => { 
+    if (errors) { 
+      return callback({ errors: errors.errors});
     } 
     return callback(JSON.parse(response.body))
   });
@@ -143,54 +145,39 @@ const core = __nccwpck_require__(2186);
 const createModule = __nccwpck_require__(9620)
 const createVersion = __nccwpck_require__(645)
 const uploadModule = __nccwpck_require__(2386)
-
-// const setGithubInput = (name, value) =>
-//   process.env[`INPUT_${name.replace(/ /g, '_').toUpperCase()}`] = value;
-
+ 
 async function run() {
-
-  try {
-    createModule.modules.createModuleApiCall(createModuleResponse => {
-      if (createModuleResponse) {
-        setModuleVersion()
-      }
-    })
-  }
-  catch (error) {
-    if (error.response) {
-      const getModuleDuplicationError = error.response.data.filter(error => error.meta.duplicate_module && error.status == 422)
+  createModule.modules.createModuleApiCall((createModuleResponse) => {
+    if (createModuleResponse.data) {
+      setModuleVersion()
+    }
+    if (createModuleResponse.errors) {
+      const getModuleDuplicationError = createModuleResponse.errors.filter(error => error.meta.duplicate_module && error.status == 422)
       if (getModuleDuplicationError.length > 0) {
         setModuleVersion()
         return
       }
-      core.setFailed({ status: error.response.status, data: error.response.data });
+      core.setFailed({ data: createModuleResponse.errors });
+      return
     }
-  }
+  })
 }
 
 function setModuleVersion() {
-  try {
-    createVersion.modules.updateVersionModuleApiCall((createVersionResponse) => {
-      if (createVersionResponse.errors) {
-        return core.setOutput("response", JSON.stringify(createVersionResponse.errors));
+  createVersion.modules.updateVersionModuleApiCall((createVersionResponse) => {
+    if (createVersionResponse.errors) {
+      return core.setFailed({ data: createVersionResponse.errors });
+    }
+    if (createVersionResponse.data) {
+      const uploadModuleResponse = uploadModule.modules.updateFileModuleApiCall(createVersionResponse.data.links.upload)
+      if (!uploadModuleResponse.errors) {
+        return core.setOutput("response", JSON.stringify(createVersionResponse.data));
       }
+      return core.setFailed({ error: uploadModuleResponse.errors });
+    }
 
-      if (createVersionResponse.data) {
-        const uploadModuleResponse = uploadModule.modules.updateFileModuleApiCall(createVersionResponse.data.links.upload)
-        if (!uploadModuleResponse.error) {
-          return core.setOutput("response", JSON.stringify(createVersionResponse.data));
-        }
-        return core.setFailed({ error: uploadModuleResponse.error });
-      }
-
-    })
-  }
-  catch (error) {
-    console.log(error)
-    return core.setFailed({ error });
-  }
+  })
 }
-
 
 run()
 
@@ -204,24 +191,28 @@ const fs = __nccwpck_require__(5747)
 const request = __nccwpck_require__(8699);
 
 const updateFileModuleApiCall = (url) => {
+  try {
+    let filePath = core.getInput('file_path');
+    const fileStream = fs.readFileSync(filePath);
+  
+    const options = {
+      'method': 'PUT',
+      url: `${url}`,
+      body: fileStream,
+      headers: {
+        'Content-Type': 'application/octet-stream'
+      }
+    };
+  
+    return request(options, (errors, response, body) => {
+      if (errors) {
+        return { errors }
+      }
+    })
 
-  let filePath = core.getInput('file_path');
-  const fileStream = fs.readFileSync(filePath);
-
-  const options = {
-    'method': 'PUT',
-    url: `${url}`,
-    body: fileStream,
-    headers: {
-      'Content-Type': 'application/octet-stream'
-    }
-  };
-
-  return request(options, (error, response, body) => {
-    if (error) {
-      return { error }
-    }
-  })
+  } catch(error) { 
+    return { errors: error }
+  }
 }
 
 exports.modules = {
